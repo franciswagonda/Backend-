@@ -2,38 +2,6 @@ const db = require('../models');
 const Project = db.Project;
 const User = db.User;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // Create Project
 exports.createProject = async (req, res) => {
     try {
