@@ -10,5 +10,7 @@ router.post('/login', authController.login);
 // Password reset routes (public)
 router.post('/forgot-password', authController.requestPasswordReset);
 router.post('/reset-password/:token', authController.resetPassword);
+// Change password (authenticated)
+router.post('/change-password', auth, authController.changePassword);
 
 module.exports = router;

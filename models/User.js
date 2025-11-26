@@ -26,8 +26,12 @@ module.exports = (sequelize) => {
         role: {
             type: DataTypes.ENUM('student', 'supervisor', 'admin', 'faculty_admin'),
             defaultValue: 'student'
-        }
-        ,
+        },
+        accessNumber: {
+            type: DataTypes.STRING,
+            allowNull: true,
+            unique: true
+        },
         active: {
             type: DataTypes.BOOLEAN,
             allowNull: false,
@@ -45,3 +49,9 @@ module.exports = (sequelize) => {
 
     return User;
 };
+
+
+
+
+
+

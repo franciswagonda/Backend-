@@ -7,6 +7,9 @@ exports.createProject = async (req, res) => {
     try {
         const { title, description, category, technologies, github_link, supervisor_id } = req.body;
 
+        console.log('Creating project for student:', req.user.id);
+        console.log('Project data:', { title, category, student_id: req.user.id });
+
         // Handle file upload
         let document_url = '';
         if (req.file) {
@@ -24,7 +27,54 @@ exports.createProject = async (req, res) => {
             supervisor_id
         });
 
+        console.log('Project created:', { id: project.id, title: project.title, student_id: project.student_id });
+
         res.status(201).json(project);
+    } catch (error) {
+        console.error('Error creating project:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+};
+
+// Get My Faculty Projects (for supervisors and faculty admins)
+exports.getMyFacultyProjects = async (req, res) => {
+    try {
+        // Fetch current user from DB to get faculty_id and department_id
+        const currentUser = await User.findByPk(req.user.id, {
+            attributes: ['faculty_id', 'department_id', 'role']
+        });
+
+        if (!currentUser || !currentUser.faculty_id) {
+            return res.status(400).json({ message: 'User faculty not found' });
+        }
+
+        // Build the where clause for student filtering
+        let studentWhere = { faculty_id: currentUser.faculty_id };
+        
+        // Supervisors see only projects from their department
+        if (currentUser.role === 'supervisor' && currentUser.department_id) {
+            studentWhere.department_id = currentUser.department_id;
+        }
+
+        // Get all projects where student matches the criteria
+        const projects = await Project.findAll({
+            include: [
+                {
+                    model: User,
+                    as: 'Student',
+                    attributes: ['name', 'email', 'faculty_id', 'department_id'],
+                    where: studentWhere,
+                    include: [
+                        { model: db.Faculty, attributes: ['name'] },
+                        { model: db.Department, attributes: ['name'] }
+                    ]
+                },
+                { model: User, as: 'Supervisor', attributes: ['name', 'email'] }
+            ],
+            order: [['createdAt', 'DESC']]
+        });
+
+        res.json(projects);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server error' });
@@ -156,14 +206,38 @@ exports.updateProject = async (req, res) => {
 exports.reviewProject = async (req, res) => {
     try {
         const { status } = req.body;
-        const project = await Project.findByPk(req.params.id);
+        const project = await Project.findByPk(req.params.id, {
+            include: [
+                {
+                    model: User,
+                    as: 'Student',
+                    attributes: ['department_id', 'faculty_id']
+                }
+            ]
+        });
 
         if (!project) {
             return res.status(404).json({ message: 'Project not found' });
         }
 
-        if (req.user.role !== 'supervisor' && req.user.role !== 'admin') {
+        if (req.user.role !== 'supervisor' && req.user.role !== 'admin' && req.user.role !== 'faculty_admin') {
             return res.status(403).json({ message: 'Not authorized to review' });
+        }
+
+        // Supervisors can only review projects from their department
+        if (req.user.role === 'supervisor') {
+            const currentUser = await User.findByPk(req.user.id);
+            if (project.Student.department_id !== currentUser.department_id) {
+                return res.status(403).json({ message: 'You can only review projects from your department' });
+            }
+        }
+
+        // Faculty admins can only review projects from their faculty
+        if (req.user.role === 'faculty_admin') {
+            const currentUser = await User.findByPk(req.user.id);
+            if (project.Student.faculty_id !== currentUser.faculty_id) {
+                return res.status(403).json({ message: 'You can only review projects from your faculty' });
+            }
         }
 
         project.status = status;
@@ -235,6 +309,36 @@ exports.getProjectComments = async (req, res) => {
         res.json(comments);
     } catch (error) {
         console.error(error);
+        res.status(500).json({ message: 'Server error' });
+    }
+};
+
+// Get projects for the authenticated student
+exports.getMyProjects = async (req, res) => {
+    try {
+        console.log('getMyProjects called by user:', req.user.id, 'role:', req.user.role);
+        
+        // Ensure only the owner (student) or admin can access
+        const currentUser = await User.findByPk(req.user.id);
+        if (!currentUser) return res.status(404).json({ message: 'User not found' });
+        
+        console.log('Current user:', currentUser.id, currentUser.email, currentUser.role);
+        
+        if (currentUser.role !== 'student' && currentUser.role !== 'admin') {
+            return res.status(403).json({ message: 'Only students can view their submissions' });
+        }
+
+        const projects = await Project.findAll({
+            where: { student_id: req.user.id },
+            order: [['createdAt', 'DESC']]
+        });
+        
+        console.log('Found projects for student', req.user.id, ':', projects.length);
+        console.log('Projects:', projects.map(p => ({ id: p.id, title: p.title, student_id: p.student_id })));
+        
+        res.json(projects);
+    } catch (error) {
+        console.error('Error in getMyProjects:', error);
         res.status(500).json({ message: 'Server error' });
     }
 };

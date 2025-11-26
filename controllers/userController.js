@@ -17,22 +17,34 @@ function requireAdminOrFacultyAdmin(req, res) {
 exports.listUsers = async (req, res) => {
   try {
     if (!requireAdminOrFacultyAdmin(req, res)) return;
-    
+
     const { role, faculty_id, department_id, include_inactive } = req.query;
     const where = {};
-    
-    // Faculty admins can only see users in their faculty
+
+    // Faculty admins: restrict to their own faculty (fetched from DB to ensure we have it)
     if (req.user.role === 'faculty_admin') {
-      where.faculty_id = req.user.faculty_id;
+      const currentUser = await User.findByPk(req.user.id);
+      if (currentUser && currentUser.faculty_id != null) {
+        where.faculty_id = currentUser.faculty_id;
+      }
     }
-    
+
+    // Admin can optionally filter by faculty_id from query
+    if (faculty_id && req.user.role === 'admin') {
+      where.faculty_id = faculty_id;
+    }
+
     if (role) where.role = role;
-    if (faculty_id && req.user.role === 'admin') where.faculty_id = faculty_id;
     if (department_id) where.department_id = department_id;
     if (!include_inactive) where.active = true;
-    
-    const users = await User.findAll({ 
-      where, 
+
+    // Remove undefined filters defensively
+    Object.keys(where).forEach(key => {
+      if (where[key] === undefined) delete where[key];
+    });
+
+    const users = await User.findAll({
+      where,
       attributes: { exclude: ['password'] },
       include: [
         { model: Faculty, attributes: ['id', 'name'] },
@@ -174,7 +186,9 @@ exports.deleteUser = async (req, res) => {
     
     // Faculty admins can only deactivate users in their faculty
     if (req.user.role === 'faculty_admin') {
-      if (user.faculty_id !== req.user.faculty_id) {
+      // Fetch current user from DB to get faculty_id
+      const currentUser = await User.findByPk(req.user.id);
+      if (user.faculty_id !== currentUser.faculty_id) {
         return res.status(403).json({ message: 'Access denied' });
       }
       // Faculty admins cannot delete other admins or faculty admins
@@ -201,8 +215,12 @@ exports.reactivateUser = async (req, res) => {
     if (!user) return res.status(404).json({ message: 'User not found' });
     
     // Faculty admins can only reactivate users in their faculty
-    if (req.user.role === 'faculty_admin' && user.faculty_id !== req.user.faculty_id) {
-      return res.status(403).json({ message: 'Access denied' });
+    if (req.user.role === 'faculty_admin') {
+      // Fetch current user from DB to get faculty_id
+      const currentUser = await User.findByPk(req.user.id);
+      if (user.faculty_id !== currentUser.faculty_id) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
     }
     
     if (user.active) return res.status(400).json({ message: 'User already active' });

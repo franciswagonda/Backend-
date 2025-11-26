@@ -23,7 +23,7 @@ if (process.env.NODE_ENV !== 'test') {
 // Rate Limiting (adjust window/max via env)
 const apiLimiter = rateLimit({
     windowMs: (process.env.RATE_WINDOW_MINUTES || 15) * 60 * 1000,
-    max: process.env.RATE_MAX_REQUESTS || 100,
+    max: process.env.RATE_MAX_REQUESTS || 1000, // Increased for development
     standardHeaders: true,
     legacyHeaders: false,
 });

@@ -6,6 +6,47 @@ const nodemailer = require('nodemailer');
 
 const User = db.User;
 
+// Helpers
+function generateRandomPassword(length = 10) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
+
+async function getFacultyPrefixById(faculty_id) {
+    try {
+        const faculty = await db.Faculty.findByPk(faculty_id);
+        const name = faculty?.name || '';
+        if (/Agricultural Sciences/i.test(name)) return 'A';
+        if (/Engineering.*Design.*Technology/i.test(name)) return 'B';
+        if (/(Public Health|Nursing|Midwifery)/i.test(name)) return 'C';
+        return 'U';
+    } catch {
+        return 'U';
+    }
+}
+
+async function generateUniqueAccessNumber(faculty_id) {
+    const prefix = await getFacultyPrefixById(faculty_id);
+    let accessNumber;
+    // Try up to 10 times to avoid rare collisions
+    for (let i = 0; i < 10; i++) {
+        const num = Math.floor(100000 + Math.random() * 900000); // 6 digits
+        accessNumber = `${prefix}${num}`; // e.g., A123456
+        const exists = await User.findOne({ where: { accessNumber } });
+        if (!exists) break;
+    }
+    return accessNumber;
+}
+
+function buildTransporter() {
+    return nodemailer.createTransport({
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: process.env.SMTP_PORT || 587,
+        secure: String(process.env.SMTP_PORT) === '465',
+        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    });
+}
+
 // Admin-only User Provisioning (Registration removed from public access)
 exports.register = async (req, res) => {
     try {
@@ -14,15 +55,22 @@ exports.register = async (req, res) => {
             return res.status(403).json({ message: 'Only admins or faculty admins can create users' });
         }
 
-        let { name, email, password, role, faculty_id, department_id } = req.body;
+        let { name, email, role, faculty_id, department_id, alternativeEmail } = req.body;
 
-        if (!name || !email || !password) {
-            return res.status(400).json({ message: 'Name, email and password are required' });
+        if (!name || !email) {
+            return res.status(400).json({ message: 'Name and email are required' });
         }
         
         // Faculty admins can only create users in their own faculty
+        // Note: JWT does not include faculty_id, so fetch creator from DB
         if (req.user.role === 'faculty_admin') {
-            faculty_id = req.user.faculty_id;
+            const creator = await User.findByPk(req.user.id);
+            faculty_id = creator?.faculty_id || faculty_id;
+        }
+
+        // Ensure faculty_id is provided
+        if (!faculty_id) {
+            return res.status(400).json({ message: 'Faculty is required' });
         }
 
         // Role restrictions based on who's creating the user
@@ -37,26 +85,62 @@ exports.register = async (req, res) => {
             return res.status(409).json({ message: 'User already exists' });
         }
 
+        const tempPassword = generateRandomPassword(10);
+        let accessNumber = null;
+        if (finalRole === 'student') {
+            accessNumber = await generateUniqueAccessNumber(faculty_id);
+        }
+
         const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
+        const hashedPassword = await bcrypt.hash(tempPassword, salt);
 
         const user = await User.create({
             name,
             email,
+            accessNumber,
             password: hashedPassword,
             role: finalRole,
             faculty_id,
             department_id
         });
 
-        // No automatic login token returned (admin provisioning context)
+        // Send welcome email with credentials
+        try {
+            const transporter = buildTransporter();
+            const loginUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login`;
+            let emailHtml = `<div style="font-family: Arial, sans-serif;">
+                <h2 style="margin:0">Welcome to UCU Innovators Hub</h2>
+                <p>Your account has been created by your faculty administrator.</p>
+                <p><strong>UCU Email:</strong> ${email}<br/>
+                <strong>Temporary Password:</strong> ${tempPassword}</p>`;
+            if (finalRole === 'student') {
+                emailHtml += `<p><strong>Access Number:</strong> ${accessNumber}</p>`;
+            }
+            emailHtml += `<p><a href="${loginUrl}" style="background:#e91e63;color:#fff;padding:10px 16px;border-radius:4px;text-decoration:none;">Sign in</a></p>
+                <p>Please change your password after signing in.</p>
+            </div>`;
+            
+            // For supervisors, send to alternative email if provided, otherwise to UCU email
+            const recipientEmail = (finalRole === 'supervisor' && alternativeEmail) ? alternativeEmail : email;
+            
+            await transporter.sendMail({
+                from: process.env.SMTP_FROM || 'UCU Innovators Hub <noreply@ucu.ac.ug>',
+                to: recipientEmail,
+                subject: 'Your UCU Innovators Hub Account',
+                html: emailHtml
+            });
+        } catch (e) {
+            console.error('Welcome email failed:', e);
+        }
+
         res.status(201).json({
             message: 'User provisioned successfully',
             user: {
                 id: user.id,
                 name: user.name,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                accessNumber: user.accessNumber
             }
         });
     } catch (error) {
@@ -65,28 +149,41 @@ exports.register = async (req, res) => {
     }
 };
 
-// Login User
+// Login User (email for staff, access number for students)
 exports.login = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        let { identifier, password } = req.body;
+        identifier = identifier?.trim();
+        console.log('Login attempt with identifier:', identifier);
+        
+        if (!identifier || !password) {
+            return res.status(400).json({ message: 'Login credentials are required' });
+        }
 
-        // Check user
-        const user = await User.findOne({ where: { email } });
+        // Try to find user by email first (for staff), then by access number (for students)
+        let user = await User.findOne({ where: { email: identifier } });
         if (!user) {
+            user = await User.findOne({ where: { accessNumber: identifier } });
+        }
+
+        if (!user) {
+            console.log('User not found for identifier:', identifier);
             return res.status(400).json({ message: 'Invalid credentials' });
         }
+
+        console.log('User found:', user.email, 'Role:', user.role);
 
         if (!user.active) {
             return res.status(403).json({ message: 'Account is deactivated' });
         }
 
-        // Check password
         const isMatch = await bcrypt.compare(password, user.password);
+        console.log('Password match:', isMatch);
+        
         if (!isMatch) {
             return res.status(400).json({ message: 'Invalid credentials' });
         }
 
-        // Create token
         const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, {
             expiresIn: '1d'
         });
@@ -98,8 +195,11 @@ exports.login = async (req, res) => {
                 id: user.id,
                 name: user.name,
                 email: user.email,
+                accessNumber: user.accessNumber,
                 role: user.role,
-                active: user.active
+                active: user.active,
+                faculty_id: user.faculty_id,
+                department_id: user.department_id
             }
         });
     } catch (error) {
@@ -108,43 +208,31 @@ exports.login = async (req, res) => {
     }
 };
 
-// Request Password Reset
+// Request Password Reset (access number input, email delivery)
 exports.requestPasswordReset = async (req, res) => {
     try {
-        const { email } = req.body;
+        const { accessNumber } = req.body;
 
-        if (!email) {
-            return res.status(400).json({ message: 'Email is required' });
+        if (!accessNumber) {
+            return res.status(400).json({ message: 'Access number is required' });
         }
 
-        const user = await User.findOne({ where: { email } });
+        const user = await User.findOne({ where: { accessNumber } });
         if (!user) {
-            // Don't reveal if user exists or not for security
-            return res.json({ message: 'If an account exists with this email, a password reset link has been sent.' });
+            // Don't reveal if user exists
+            return res.json({ message: 'If an account exists, a password reset link has been sent.' });
         }
 
-        // Generate reset token
         const resetToken = require('crypto').randomBytes(32).toString('hex');
         const hashedToken = require('crypto').createHash('sha256').update(resetToken).digest('hex');
 
-        // Set token and expiry (1 hour)
         user.resetPasswordToken = hashedToken;
-        user.resetPasswordExpires = new Date(Date.now() + 3600000); // 1 hour
+        user.resetPasswordExpires = new Date(Date.now() + 3600000);
         await user.save();
 
-        // Create reset URL
         const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password/${resetToken}`;
 
-        // Configure email transporter
-        const transporter = nodemailer.createTransport({
-            host: process.env.SMTP_HOST || 'smtp.gmail.com',
-            port: process.env.SMTP_PORT || 587,
-            secure: false,
-            auth: {
-                user: process.env.SMTP_USER,
-                pass: process.env.SMTP_PASS
-            }
-        });
+        const transporter = buildTransporter();
 
         // Email content
         const mailOptions = {
@@ -246,6 +334,40 @@ exports.resetPassword = async (req, res) => {
 
         res.json({ message: 'Password reset successful. You can now login with your new password.' });
 
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server error' });
+    }
+};
+
+// Change Password (authenticated user)
+exports.changePassword = async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ message: 'Current and new password required' });
+        }
+
+        if (newPassword.length < 6) {
+            return res.status(400).json({ message: 'New password must be at least 6 characters' });
+        }
+
+        const user = await User.findByPk(req.user.id);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ message: 'Current password is incorrect' });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(newPassword, salt);
+        await user.save();
+
+        res.json({ message: 'Password changed successfully' });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server error' });
