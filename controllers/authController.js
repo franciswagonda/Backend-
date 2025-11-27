@@ -6,6 +6,18 @@ const nodemailer = require('nodemailer');
 
 const User = db.User;
 
+
+
+
+
+
+
+
+
+
+
+
+
 // Helpers
 function generateRandomPassword(length = 10) {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
