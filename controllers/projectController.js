@@ -205,7 +205,7 @@ exports.updateProject = async (req, res) => {
 // Review Project (Supervisor/Admin)
 exports.reviewProject = async (req, res) => {
     try {
-        const { status } = req.body;
+        const { status, feedback } = req.body;
         const project = await Project.findByPk(req.params.id, {
             include: [
                 {
@@ -240,10 +240,18 @@ exports.reviewProject = async (req, res) => {
             }
         }
 
+        // Require feedback when rejecting for better UX consistency
+        if (status === 'rejected' && (!feedback || !String(feedback).trim())) {
+            return res.status(400).json({ message: 'Feedback is required when rejecting a project' });
+        }
+
         project.status = status;
+        if (typeof feedback === 'string') {
+            project.feedback = feedback.trim();
+        }
         await project.save();
 
-        res.json({ message: `Project ${status}` });
+        res.json({ message: `Project ${status}` , project });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server error' });

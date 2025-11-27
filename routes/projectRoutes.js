@@ -9,17 +9,20 @@ router.get('/faculty/my-projects', auth, projectController.getMyFacultyProjects)
 
 // Public Routes
 router.get('/', projectController.getAllProjects);
-router.get('/:id', projectController.getProjectById);
 
-// Protected routes
-router.post('/', auth, upload, projectController.createProject);
+// Protected routes (specific paths MUST come before parameterized routes)
 router.get('/my-projects', auth, projectController.getMyProjects);
+router.post('/', auth, upload, projectController.createProject);
 router.put('/:id', auth, upload, projectController.updateProject);
 router.patch('/:id/review', auth, projectController.reviewProject);
 router.delete('/:id', auth, projectController.deleteProject);
+
+// Parameterized route must come last to avoid capturing specific paths like /my-projects
+router.get('/:id', projectController.getProjectById);
 
 // Comment routes
 router.post('/:id/comments', auth, projectController.addComment);
 router.get('/:id/comments', projectController.getProjectComments);
 
 module.exports = router;
+

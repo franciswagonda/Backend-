@@ -35,6 +35,10 @@ module.exports = (sequelize) => {
             type: DataTypes.STRING,
             allowNull: true
         },
+        feedback: {
+            type: DataTypes.TEXT,
+            allowNull: true
+        },
         status: {
             type: DataTypes.ENUM('pending', 'approved', 'rejected'),
             defaultValue: 'pending'
