@@ -8,8 +8,8 @@ const User = db.User;
 
 // Helpers
 function generateRandomPassword(length = 10) {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
-    return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const randomNumbers = Math.floor(1000 + Math.random() * 9000); // 4 random digits
+    return `Changemenow@${randomNumbers}`;
 }
 
 async function getFacultyPrefixById(faculty_id) {
@@ -61,6 +61,10 @@ exports.register = async (req, res) => {
             return res.status(400).json({ message: 'Name and email are required' });
         }
         
+        // Convert empty strings to null for integer fields
+        faculty_id = faculty_id && faculty_id !== '' ? faculty_id : null;
+        department_id = department_id && department_id !== '' ? department_id : null;
+        
         // Faculty admins can only create users in their own faculty
         // Note: JWT does not include faculty_id, so fetch creator from DB
         if (req.user.role === 'faculty_admin') {
@@ -104,24 +108,29 @@ exports.register = async (req, res) => {
             department_id
         });
 
+        console.log('User created successfully:', user.id, user.email);
+
         // Send welcome email with credentials
+        let emailSent = false;
         try {
             const transporter = buildTransporter();
             const loginUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login`;
             let emailHtml = `<div style="font-family: Arial, sans-serif;">
                 <h2 style="margin:0">Welcome to UCU Innovators Hub</h2>
-                <p>Your account has been created by your faculty administrator.</p>
-                <p><strong>UCU Email:</strong> ${email}<br/>
+                <p>Your account has been created by your ${req.user.role === 'admin' ? 'system administrator' : 'faculty administrator'}.</p>
+                <p><strong>UCU Email (for login):</strong> ${email}<br/>
                 <strong>Temporary Password:</strong> ${tempPassword}</p>`;
             if (finalRole === 'student') {
-                emailHtml += `<p><strong>Access Number:</strong> ${accessNumber}</p>`;
+                emailHtml += `<p><strong>Access Number (alternative login):</strong> ${accessNumber}</p>`;
             }
             emailHtml += `<p><a href="${loginUrl}" style="background:#e91e63;color:#fff;padding:10px 16px;border-radius:4px;text-decoration:none;">Sign in</a></p>
-                <p>Please change your password after signing in.</p>
+                <p><strong>Important:</strong> Please change your password after signing in.</p>
             </div>`;
             
-            // For supervisors, send to alternative email if provided, otherwise to UCU email
-            const recipientEmail = (finalRole === 'supervisor' && alternativeEmail) ? alternativeEmail : email;
+            // Send to alternative email if provided, otherwise to UCU email
+            const recipientEmail = alternativeEmail || email;
+            
+            console.log('Attempting to send email to:', recipientEmail);
             
             await transporter.sendMail({
                 from: process.env.SMTP_FROM || 'UCU Innovators Hub <noreply@ucu.ac.ug>',
@@ -129,23 +138,40 @@ exports.register = async (req, res) => {
                 subject: 'Your UCU Innovators Hub Account',
                 html: emailHtml
             });
+            emailSent = true;
+            console.log('Email sent successfully to:', recipientEmail);
         } catch (e) {
-            console.error('Welcome email failed:', e);
+            console.error('Welcome email failed:', e.message);
+            console.error('Email config check - SMTP_USER:', process.env.SMTP_USER ? 'Set' : 'Not set');
+            console.error('Email config check - SMTP_PASS:', process.env.SMTP_PASS ? 'Set' : 'Not set');
+            // Continue even if email fails - user is already created
         }
 
         res.status(201).json({
-            message: 'User provisioned successfully',
+            message: emailSent 
+                ? 'User provisioned successfully and credentials sent via email' 
+                : 'User provisioned successfully, but email notification failed. Please provide credentials manually.',
             user: {
                 id: user.id,
                 name: user.name,
                 email: user.email,
                 role: user.role,
                 accessNumber: user.accessNumber
-            }
+            },
+            emailSent,
+            // Only include password in response if email failed (for admin to manually share)
+            ...(emailSent ? {} : { tempPassword })
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error' });
+        console.error('Registration error:', error);
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack
+        });
+        res.status(500).json({ 
+            message: 'Server error during user creation',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 
