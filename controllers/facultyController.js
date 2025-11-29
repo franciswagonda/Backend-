@@ -1,7 +1,6 @@
 const db = require('../models');
 const Faculty = db.Faculty;
 const Department = db.Department;
-
 // Get all faculties
 exports.getAllFaculties = async (req, res) => {
     try {
@@ -18,6 +17,24 @@ exports.getAllFaculties = async (req, res) => {
         res.status(500).json({ message: 'Server error' });
     }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // Get single faculty with departments
 exports.getFacultyById = async (req, res) => {

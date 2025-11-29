@@ -2,7 +2,7 @@ const db = require('../models');
 const Project = db.Project;
 const User = db.User;
 const Faculty = db.Faculty;
-const sequelize = db.sequelize;
+const sequelize = db.sequelize
 
 exports.getDashboardStats = async (req, res) => {
     try {
