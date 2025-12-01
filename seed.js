@@ -120,7 +120,7 @@ const seedData = async () => {
         const [supervisor] = await db.User.findOrCreate({
             where: { email: 'supervisor@ucu.ac.ug' },
             defaults: {
-                name: 'Dr. Jane Smith',
+                name: 'Dr. Jane Smith',                      
                 password: supervisorPassword,
                 role: 'supervisor',
                 faculty_id: engineeringFaculty.id,
@@ -128,7 +128,7 @@ const seedData = async () => {
             }
         });
         await supervisor.update({ password: supervisorPassword, faculty_id: engineeringFaculty.id, department_id: engineeringDept.id });
-        
+
         // Create a student
         const studentPassword = await bcrypt.hash('admin123', 10);
         const [student] = await db.User.findOrCreate({
