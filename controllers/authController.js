@@ -24,7 +24,7 @@ async function getFacultyPrefixById(faculty_id) {
         return 'U';
     }
 }
-C
+
 async function generateUniqueAccessNumber(faculty_id) {
     const prefix = await getFacultyPrefixById(faculty_id);
     let accessNumber;
