@@ -1,7 +1,6 @@
 const db = require('../models');
 const Project = db.Project;
 const User = db.User;
-
 // Create Project
 exports.createProject = async (req, res) => {
     try {
@@ -35,19 +34,6 @@ exports.createProject = async (req, res) => {
         res.status(500).json({ message: 'Server error' });
     }
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
 // Get My Faculty Projects (for supervisors and faculty admins)
 exports.getMyFacultyProjects = async (req, res) => {
     try {
