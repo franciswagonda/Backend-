@@ -9,6 +9,12 @@ exports.getDashboardStats = async (req, res) => {
         // Total Projects
         const totalProjects = await Project.count();
 
+        // Total Users
+        const totalUsers = await User.count();
+
+        // Active Users (users with active = true)
+        const activeUsers = await User.count({ where: { active: true } });
+
         // Projects by Status
         const projectsByStatus = await Project.findAll({
             attributes: ['status', [sequelize.fn('COUNT', sequelize.col('status')), 'count']],
@@ -75,6 +81,8 @@ exports.getDashboardStats = async (req, res) => {
 
         res.json({
             totalProjects,
+            totalUsers,
+            activeUsers,
             projectsByStatus,
             projectsByFaculty,
             recentProjects,
