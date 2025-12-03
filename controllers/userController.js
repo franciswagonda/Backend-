@@ -4,6 +4,23 @@ const User = db.User;
 const Faculty = db.Faculty;
 const Department = db.Department;
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // Ensure requester is admin or faculty_admin
 function requireAdminOrFacultyAdmin(req, res) {
   if (!req.user || !['admin', 'faculty_admin'].includes(req.user.role)) {
