@@ -32,6 +32,43 @@ module.exports = (sequelize) => {
             allowNull: true,
             unique: true
         },
+        profilePhotoUrl: {
+            type: DataTypes.STRING,
+            allowNull: true
+        },
+        registrationNumber: {
+            type: DataTypes.STRING,
+            allowNull: true
+        },
+        yearOfEntry: {
+            type: DataTypes.INTEGER,
+            allowNull: true
+        },
+        gender: {
+            type: DataTypes.ENUM('MALE', 'FEMALE', 'OTHER'),
+            allowNull: true
+        },
+        nationality: {
+            type: DataTypes.STRING,
+            allowNull: true,
+            defaultValue: 'Ugandan'
+        },
+        phoneNumber: {
+            type: DataTypes.STRING,
+            allowNull: true
+        },
+        otherNames: {
+            type: DataTypes.STRING,
+            allowNull: true
+        },
+        department: {
+            type: DataTypes.STRING,
+            allowNull: true
+        },
+        hobbies: {
+            type: DataTypes.TEXT,
+            allowNull: true
+        },
         active: {
             type: DataTypes.BOOLEAN,
             allowNull: false,

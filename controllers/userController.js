@@ -3,6 +3,8 @@ const bcrypt = require('bcryptjs');
 const User = db.User;
 const Faculty = db.Faculty;
 const Department = db.Department;
+const path = require('path');
+const uploadImage = require('../middleware/imageUploadMiddleware');
 
 
 
@@ -248,4 +250,104 @@ exports.reactivateUser = async (req, res) => {
     console.error(e);
     res.status(500).json({ message: 'Server error' });
   }
+};
+
+// Get current user's profile
+exports.getProfile = async (req, res) => {
+  try {
+    const user = await User.findByPk(req.user.id, {
+      attributes: { exclude: ['password', 'resetPasswordToken', 'resetPasswordExpires'] }
+    });
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json(user);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Update current user's profile
+exports.updateProfile = async (req, res) => {
+  try {
+    console.log('Profile update request from user:', req.user.id);
+    console.log('Request body:', req.body);
+    
+    const user = await User.findByPk(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Allow updating specific fields
+    const allowedFields = [
+      'name', 'phoneNumber', 'otherNames', 'nationality', 
+      'gender', 'hobbies', 'department', 'registrationNumber', 'yearOfEntry'
+    ];
+
+    allowedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        // Handle yearOfEntry - only allow for students, convert empty string to null
+        if (field === 'yearOfEntry') {
+          if (user.role === 'student') {
+            user[field] = req.body[field] === '' ? null : req.body[field];
+          }
+          // For non-students, ignore yearOfEntry field
+        } else if (field === 'registrationNumber') {
+          // Only allow registration number for students
+          if (user.role === 'student') {
+            user[field] = req.body[field] === '' ? null : req.body[field];
+          }
+        } else {
+          // For all other fields, convert empty string to null
+          user[field] = req.body[field] === '' ? null : req.body[field];
+        }
+      }
+    });
+
+    await user.save();
+    console.log('Profile updated successfully for user:', req.user.id);
+
+    const updatedUser = await User.findByPk(req.user.id, {
+      attributes: { exclude: ['password', 'resetPasswordToken', 'resetPasswordExpires'] }
+    });
+
+    res.json(updatedUser);
+  } catch (e) {
+    console.error('Error updating profile:', e);
+    console.error('Error details:', e.message);
+    res.status(500).json({ message: 'Server error: ' + e.message });
+  }
+};
+
+// Upload/update current user's profile photo
+exports.updateProfilePhoto = async (req, res) => {
+  uploadImage(req, res, async (err) => {
+    if (err) {
+      return res.status(400).json({ message: err });
+    }
+
+    try {
+      const user = await User.findByPk(req.user.id);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ message: 'No photo uploaded' });
+      }
+
+      const relativeUrl = `/uploads/${req.file.filename}`;
+      user.profilePhotoUrl = relativeUrl;
+      await user.save();
+
+      return res.json({ profilePhotoUrl: relativeUrl });
+    } catch (e) {
+      console.error('Error updating profile photo:', e);
+      return res.status(500).json({ message: 'Server error' });
+    }
+  });
 };
